@@ -46,15 +46,22 @@ export default async (req) => {
   // ---- 서버 상태 확인 ----
   if (q.get('ping')) return j({ ok: true, hasPassword: !!ADMIN });
 
-  // ---- [학부모 조회] 학생ID + 발급코드 (관리자 비번 불필요) ----
+  // ---- [학부모 조회] 발급코드만으로 조회 (학생ID 선택, 관리자 비번 불필요) ----
   const pid = q.get('id'), pcode = q.get('code');
-  if (pid && pcode && !q.get('admin')) {
-    const rec = await store.get(pid, { type: 'json' });
-    if (!rec) return j({ ok: false, error: 'not found' }, 404);
-    const stored = String(rec.pairCode || '').toUpperCase();
-    if (!stored || stored !== String(pcode).toUpperCase())
-      return j({ ok: false, error: 'code mismatch' }, 403);
-    return j({ ok: true, result: rec });   // 학부모 본인 자녀 결과만 반환
+  if (pcode && !q.get('admin')) {
+    const want = String(pcode).toUpperCase();
+    // 1) id가 주어지면 우선 그 키로 시도
+    if (pid) {
+      const rec = await store.get(pid, { type: 'json' });
+      if (rec && String(rec.pairCode || '').toUpperCase() === want) return j({ ok: true, result: rec });
+    }
+    // 2) 코드만으로 전체 스캔(발급코드는 고유)
+    const { blobs } = await store.list();
+    for (const b of blobs) {
+      const rec = await store.get(b.key, { type: 'json' });
+      if (rec && String(rec.pairCode || '').toUpperCase() === want) return j({ ok: true, result: rec });
+    }
+    return j({ ok: false, error: 'not found or code mismatch' }, 404);
   }
 
   // ---- 관리자 인증 (목록/단건/삭제) ----
